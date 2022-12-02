@@ -5,7 +5,7 @@ NB sentiment analyser.
 Start code.
 """
 import argparse
-import pandas
+import pandas as pd
 
 """
 IMPORTANT, modify this part with your details
@@ -53,6 +53,9 @@ def main():
     
     """
     
+    data=pd.read_csv('moviereviews/test.tsv',sep='\t')
+    print(str(data))
+
     #You need to change this in order to return your macro-F1 score for the dev set
     f1_score = 0
     
