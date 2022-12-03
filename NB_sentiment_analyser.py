@@ -95,6 +95,7 @@ def main():
     devData = implementStoplist(devData)
 
     chosenSentiment = calculateSentimentVals(devData, featureSentimentDict, sentimentFreqs)
+    print("FINAL VALUES: " + str(chosenSentiment))
 
 
     #getLikelihood(featureSentimentDict, sentimentFreqs, )
@@ -224,8 +225,12 @@ def calculateSentimentFreq(sentimentDict):
 
 def calculateSentimentVals(devData, sentimentDict, sentimentFreqs):
     for sentence in devData:
-        #print(str(sentence))
+        print(str(sentence))
         sentimentChoice, sentimentVal = decideSentiment(sentence[1], sentimentDict, sentimentFreqs)
+        numpy.append(sentence, sentimentChoice)
+        print("Sentence: " + str(sentence))
+        print("sentence 2: " + str(numpy.append(sentence, sentimentChoice)))
+    return devData
         # print("choice: " + str(sentimentChoice))
 
 #Takes in a list of words (a sentence), uses the likelihood values (calculated using sentimentDict/sentimentFreqs from training data)
@@ -245,6 +250,7 @@ def decideSentiment(wordList, sentimentDict, sentimentFreqs):
                     sentimentLikelihoods[i] *= (sentimentDict[word][i]/sentimentFreqs[i])
                 else:
                     sentimentLikelihoods[i] = (sentimentDict[word][i]/sentimentFreqs[i])
+    #Account for sentiments without any words
     for j in range(0, 4):
         if j not in sentimentLikelihoods:
             sentimentLikelihoods[j] = 0
