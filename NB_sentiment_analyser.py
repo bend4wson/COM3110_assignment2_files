@@ -65,40 +65,36 @@ def main():
     Create functions and classes, using the best practices of Software Engineering
     
     """
+
     
     trainingData = getFile('moviereviews/train.tsv')
-    #This is for 5 sentiment values:
-    priorProbabilities = computePriorProbabilities(trainingData)
-    # print(priorProbabilities)
     trainingData = removePunctuation(trainingData)
     trainingData = implementStoplist(trainingData)
-    # print("+++++ " + str(trainingData))
 
-    # trainingData = splitUpSentences(trainingData)
-
-    # print(str(trainingData) + " TRAINING DATA HERE")
-    #print(str(trainingData.to_dict('dict')))
-
-    #Returns e.g: {"cat": {0:1,1:0,2:0,3:4,4:0}, etc}
-    featureSentimentDict = createSentimentDict(trainingData)
-    #returns a dict of sentiment freqs {0:120, 1:.., 2:.., etc}
-    sentimentFreqs = calculateSentimentFreq(featureSentimentDict)
-    #NOTE - Can now calculate likelihoods using sentimentDict and the sentiment Frequencies really easily 
-    # (i.e: sentimentDict[sentimentVal]/sentimentFreqs[sentimentVal])
-
-    #Now use the real text and the likelihood values to figure out which sentiment is most likely
-    #(Using precision and recall)
-
-    #Here I'm using the dev data in order to test my precision/recall values (you are already given a set of sentiment scores)
     devData = getFile('moviereviews/dev.tsv')
     devData = removePunctuation(devData)
     devData = implementStoplist(devData)
 
-    chosenSentiment = calculateSentimentVals(devData, featureSentimentDict, sentimentFreqs)
-    print("FINAL VALUES: " + str(chosenSentiment))
+    testData = getFile('moviereviews/test.tsv')
+    testData = removePunctuation(testData)
+    testData = implementStoplist(testData)
 
+    if number_classes == 5:
+        featureSentimentDict, sentimentFreqs = predictSentiment(trainingData, number_classes)
+        predictedDevData = calculateSentimentVals(devData, featureSentimentDict, sentimentFreqs, number_classes)
+        predictedTestData = calculateSentimentVals(testData, featureSentimentDict, sentimentFreqs, number_classes)
 
-    #getLikelihood(featureSentimentDict, sentimentFreqs, )
+    elif number_classes == 3:
+        #Note - Do trainingData & devData  still exist, or do deepcopies have to be made??
+        trainingData = reduceClasses(trainingData)
+        devData = reduceClasses(devData)
+
+        featureSentimentDict, sentimentFreqs = predictSentiment(trainingData, number_classes)
+        predictedDevData = calculateSentimentVals(devData, featureSentimentDict, sentimentFreqs, number_classes)
+        predictedTestData = calculateSentimentVals(testData, featureSentimentDict, sentimentFreqs, number_classes)
+    else:
+        print("Error, enter 3 or 5 classes")
+
 
     #You need to change this in order to return your macro-F1 score for the dev set
     f1_score = 0
@@ -110,6 +106,43 @@ def main():
     """
     #print("Student\tNumber of classes\tFeatures\tmacro-F1(dev)\tAccuracy(dev)")
     print("%s\t%d\t%s\t%f" % (USER_ID, number_classes, features, f1_score))
+
+    if output_files == True and number_classes == 3:
+        print("Saving to files")
+        predictedDevData.to_csv('dev_predictions_3classes_aca19bcd.tsv', sep="\t")
+        predictedTestData.to_csv('test_predictions_3classes_aca19bcd.tsv', sep="\t")
+    elif output_files == True and number_classes == 5:
+        print("Saving to files")
+        predictedDevData.to_csv('dev_predictions_5classes_aca19bcd.tsv', sep="\t")
+        predictedTestData.to_csv('test_predictions_5classes_aca19bcd.tsv', sep="\t")
+
+def predictSentiment(data, numClasses):
+    priorProbabilities = computePriorProbabilities(data)
+    # print(priorProbabilities)
+    # data = removePunctuation(data)
+    # data = implementStoplist(data)
+    # print("+++++ " + str(trainingData))
+
+    # trainingData = splitUpSentences(trainingData)
+
+    # print(str(trainingData) + " TRAINING DATA HERE")
+    #print(str(trainingData.to_dict('dict')))
+
+    #Returns e.g: {"cat": {0:1,1:0,2:0,3:4,4:0}, etc}
+    featureSentimentDict = createSentimentDict(data, numClasses)
+    #returns a dict of sentiment freqs {0:120, 1:.., 2:.., etc}
+    sentimentFreqs = calculateSentimentFreq(featureSentimentDict)
+    return featureSentimentDict, sentimentFreqs
+
+def reduceClasses(data):
+    for sentence in data:
+        if sentence[2] == 1:
+            sentence[2] = 0
+        elif sentence[2] == 2:
+            sentence[2] = 1
+        elif sentence[2] == 3 or sentence[2] == 4:
+            sentence[2] = 2
+    return data
 
 def getFile(fileLocation):
     data=pd.read_csv(fileLocation,sep='\t').to_numpy()
@@ -157,7 +190,6 @@ def removePunctuation(data):
 #Should then return the training data where trainingdata[1] consists of only the features     
 def implementStoplist(data):
     for sentence in data:
-        # print("111111 " + str(sentence[1]))
         stopWords = set(stopwords.words('english'))
         words = word_tokenize(sentence[1])
         wordsFiltered = []
@@ -166,18 +198,21 @@ def implementStoplist(data):
             if w not in stopWords:
                 wordsFiltered.append(w)
         sentence[1] = wordsFiltered
-        # print("222222 " + str(wordsFiltered))
-
     return data
 
-def createSentimentDict(trainingData):
+def createSentimentDict(trainingData, numClasses):
     sentimentDict = dict(dict())
     for sentence in trainingData:
         for i in sentence[1]:
             if i not in sentimentDict:
                 #The new dictionary added when a new word is found in the training data
                 #(Containing each sentiment and word frequency of the sentiment)
-                sentimentDict[i] = {0:0, 1:0, 2:0, 3:0, 4:0}
+                if numClasses == 5:
+                    sentimentDict[i] = {0:0, 1:0, 2:0, 3:0, 4:0}
+                elif numClasses == 3:
+                    sentimentDict[i] = {0:0, 1:0, 2:0}
+                else:
+                    print("Error with number of classes")
             sentimentDict[i][sentence[2]] += 1
     # print("\n\n\n\n" + str(sentimentDict))
     return sentimentDict
@@ -215,37 +250,39 @@ def calculateSentimentFreq(sentimentDict):
             if sentiment in sentimentFreq:
                 sentimentFreq[sentiment] += sentimentDict[word][sentiment]
             else:
-                # print(str(sentimentDict))
-                # print("\n\n\n\n" + str(sentimentDict[word]) + "\n\n\n\n")
-                # print("*** " + str(sentiment))
-                # testKeys = list(sentimentDict[word].keys())
-                #print(str(testKeys[0]))
                 sentimentFreq[sentiment] = sentimentDict[word][sentiment] #testKeys[int(sentiment)]]
     return sentimentFreq
 
-def calculateSentimentVals(devData, sentimentDict, sentimentFreqs):
-    for sentence in devData:
-        print(str(sentence))
-        sentimentChoice, sentimentVal = decideSentiment(sentence[1], sentimentDict, sentimentFreqs)
+def calculateSentimentVals(data, sentimentDict, sentimentFreqs, numClasses):
+    sentimentVals = []
+    sentimentOutput = pd.DataFrame(columns=['SentenceId', 'Sentiment'])
+    for sentence in data:
+        # print(str(sentence))
+        sentimentChoice, sentimentVal = decideSentiment(sentence[1], sentimentDict, sentimentFreqs, numClasses)
         numpy.append(sentence, sentimentChoice)
-        print("Sentence: " + str(sentence))
-        print("sentence 2: " + str(numpy.append(sentence, sentimentChoice)))
-    return devData
+        # print("Sentence: " + str(sentence))
+        # print("sentence 2: " + str(numpy.append(sentence, sentimentChoice)))
+        newSentiment = pd.DataFrame({'SentenceId':[sentence[0]], 'Sentiment':[sentimentChoice]})
+        sentimentOutput = pd.concat([newSentiment, sentimentOutput.loc[:]]).reset_index(drop=True)
+        #sentimentVals.append((sentence[0], sentimentChoice))
+
+        #Adding the new sentiment values to the pandas dataframe
+        if len(sentence) > 2:
+            sentence[2] = sentimentChoice
+    #print(str(sentimentOutput))
+    return sentimentOutput
         # print("choice: " + str(sentimentChoice))
 
 #Takes in a list of words (a sentence), uses the likelihood values (calculated using sentimentDict/sentimentFreqs from training data)
 #to calculate the score for each sentiment, returns the highest score.
 #NOTE - This doesn't take into account smoothing/values that aren't in the training data, leading to 0 vals for some sentiments
-def decideSentiment(wordList, sentimentDict, sentimentFreqs):
+def decideSentiment(wordList, sentimentDict, sentimentFreqs, numClasses):
     sentimentLikelihoods = dict()
     # print(str(wordList) + "&&&")
     for word in wordList:
-        # print("*")
         #i = the sentiment (here would be 0,1,2,3,4)
         if word in sentimentDict:
-            # print("**")
             for i in range(0, len(sentimentDict[word])):
-                # print("***")
                 if i in sentimentLikelihoods:
                     sentimentLikelihoods[i] *= (sentimentDict[word][i]/sentimentFreqs[i])
                 else:
