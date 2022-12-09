@@ -10,11 +10,25 @@ import argparse
 import pandas as pd
 import numpy
 
+#For creating a heatmap of confusion matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+
 #For the stoplist
-#import nltk
-#nltk.download()
+import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
+
+#For stemming
+from nltk.stem import PorterStemmer
+
+#For Lemmatizing
+from nltk.stem import WordNetLemmatizer
+
+#For feature selection, POS Tagging:
+import nltk
+from nltk import pos_tag
+from nltk import RegexpParser
 
 #For removing punctuation
 import string
@@ -60,80 +74,241 @@ def main():
     #whether to print confusion matrix (default = no confusion matrix)
     confusion_matrix = inputs.confusion_matrix
     
-    """
-    ADD YOUR CODE HERE
-    Create functions and classes, using the best practices of Software Engineering
-    
-    """
 
-    
     trainingData = getFile('moviereviews/train.tsv')
-    trainingData = removePunctuation(trainingData)
-    trainingData = implementStoplist(trainingData)
-
     devData = getFile('moviereviews/dev.tsv')
-    devData = removePunctuation(devData)
-    devData = implementStoplist(devData)
-
     testData = getFile('moviereviews/test.tsv')
-    testData = removePunctuation(testData)
-    testData = implementStoplist(testData)
 
-    if number_classes == 5:
-        featureSentimentDict, sentimentFreqs = predictSentiment(trainingData, number_classes)
-        predictedDevData = calculateSentimentVals(devData, featureSentimentDict, sentimentFreqs, number_classes)
-        predictedTestData = calculateSentimentVals(testData, featureSentimentDict, sentimentFreqs, number_classes)
+    trainingData = preProcess(trainingData)
+    devData = preProcess(devData)
+    testData = preProcess(testData)
 
-    elif number_classes == 3:
-        #Note - Do trainingData & devData  still exist, or do deepcopies have to be made??
+    #Is features are being used
+    if features != "all_words":
+        for i in range(0, len(trainingData)):
+            #Keep the words which are either adjectives (JJ) or adverbs (RB)
+            trainingData[i][1] = [token for token, pos in pos_tag(trainingData[i][1]) if pos.startswith("JJ") or pos.startswith("RB")] 
+        for j in range(0, len(devData)):
+            devData[j][1] = [token for token, pos in pos_tag(devData[j][1]) if pos.startswith("JJ") or pos.startswith("RB")]
+        for k in range(0, len(testData)):
+            testData[k][1] = [token for token, pos in pos_tag(testData[k][1]) if pos.startswith("JJ") or pos.startswith("RB")]
+
+    if number_classes == 3:
         trainingData = reduceClasses(trainingData)
         devData = reduceClasses(devData)
 
-        featureSentimentDict, sentimentFreqs = predictSentiment(trainingData, number_classes)
-        predictedDevData = calculateSentimentVals(devData, featureSentimentDict, sentimentFreqs, number_classes)
-        predictedTestData = calculateSentimentVals(testData, featureSentimentDict, sentimentFreqs, number_classes)
+    featureSentimentDict, sentimentFreqs = predictSentiment(trainingData, number_classes)
+    predictedDevData = calculateSentimentVals(devData, featureSentimentDict, sentimentFreqs, number_classes)
+    predictedTestData = calculateSentimentVals(testData, featureSentimentDict, sentimentFreqs, number_classes)
+
+    devSents = []
+    devRealSents = []
+    if number_classes == 3:
+        devReal = reduceClasses(preProcess(getFile('moviereviews/dev.tsv')))
     else:
-        print("Error, enter 3 or 5 classes")
+        devReal = preProcess(getFile('moviereviews/dev.tsv'))
+    #Create a new, non-processed data set from the movie reviews to compare to the pre-processed one
+    for i in range(0, len(devData)):
+        devSents.append(devData[i][2])
+        devRealSents.append(devReal[i][2])
 
 
-    #You need to change this in order to return your macro-F1 score for the dev set
-    f1_score = 0
+    if number_classes == 5:
+        confusionMatrix = calculateConfusionMatrices(devData, preProcess(getFile('moviereviews/dev.tsv')), number_classes)
+    elif number_classes == 3:
+        confusionMatrix = calculateConfusionMatrices(devData, reduceClasses(preProcess(getFile('moviereviews/dev.tsv'))), number_classes)
+    else:
+        print("Error")
+
+    if confusion_matrix == True:
+        confusionMatrixHM = sns.heatmap(confusionMatrix, annot=True, cmap='plasma')
+        confusionMatrixHM.set(xlabel='Predicted Sentiment', ylabel='Actual Sentiment')
+        plt.show()
+
+
+    matrixVals = calculateMatrixVals(confusionMatrix)
+    precisions = calculateClassPrecisions(matrixVals)
+    recalls = calculateClassRecalls(matrixVals)
+    f1s = calculateF1Vals(matrixVals)
+    f1_score = calculateMacroF1(f1s)
     
 
-    """
-    IMPORTANT: your code should return the lines below. 
-    However, make sure you are also implementing a function to save the class predictions on dev and test sets as specified in the assignment handout
-    """
+
     #print("Student\tNumber of classes\tFeatures\tmacro-F1(dev)\tAccuracy(dev)")
     print("%s\t%d\t%s\t%f" % (USER_ID, number_classes, features, f1_score))
 
     if output_files == True and number_classes == 3:
         print("Saving to files")
-        predictedDevData.to_csv('dev_predictions_3classes_aca19bcd.tsv', sep="\t")
-        predictedTestData.to_csv('test_predictions_3classes_aca19bcd.tsv', sep="\t")
+        saveData(predictedDevData, 'predictions/dev_predictions_3classes_aca19bcd.tsv')
+        saveData(predictedTestData, 'predictions/test_predictions_3classes_aca19bcd.tsv')
     elif output_files == True and number_classes == 5:
         print("Saving to files")
-        predictedDevData.to_csv('dev_predictions_5classes_aca19bcd.tsv', sep="\t")
-        predictedTestData.to_csv('test_predictions_5classes_aca19bcd.tsv', sep="\t")
+        saveData(predictedDevData, 'predictions/dev_predictions_5classes_aca19bcd.tsv')
+        saveData(predictedTestData, 'predictions/test_predictions_5classes_aca19bcd.tsv')
 
+"""This function saves the predicted classes into .tsv files"""
+def saveData(predictions, fileName):
+    file = open(fileName, 'w')
+    file.write(f'SentenceID\tSentiment\n')
+    for prediction in predictions:
+        file.write(str(prediction[0]) + "\t" + str(prediction[1]) + "\n")
+    file.close()
+
+"""This function calculates the precision values for each class using the TP, TN, FP, FN values from the confusion matrix"""
+def calculateClassPrecisions(matrixVals):
+    #NOTE - Precision = TP / (TP+FP)
+    precisionVals = []
+    for classVals in matrixVals:
+        classArr = matrixVals[classVals]
+        precisionVals.append(classArr[0]/(classArr[0]+classArr[2]))
+    return precisionVals
+
+"""This function calculates the recall values for each class using the TP, TN, FP, FN values from the confusion matrix"""
+def calculateClassRecalls(matrixVals):
+    #NOTE - Recall = TP / (TP+FN)
+    recallVals = []
+    for classVals in matrixVals:
+        classArr = matrixVals[classVals]
+        recallVals.append(classArr[0]/(classArr[0]+classArr[3]))
+    return recallVals
+
+"""This function calculates the macro-F1 values for each class using the TP, TN, FP, FN values from the confusion matrix"""
+def calculateF1Vals(matrixVals):
+    f1Vals = []
+    for classVals in matrixVals:
+        classArr = matrixVals[classVals]
+        f1Vals.append((2*classArr[0])/(2*classArr[0]+classArr[2]+classArr[3]))
+    return f1Vals
+
+"""This function calculates the average Macro-F1 value using the macro-F1 values for each class"""
+def calculateMacroF1(f1Vals):
+    macroF1 = 0.0
+    for i in range(0, len(f1Vals)):
+        macroF1 += f1Vals[i]
+    macroF1 /= (len(f1Vals))
+    return macroF1
+
+#Calculates TP, TN, FP and FN values
+"""This function calculates True Positive, True Negative, False Positive & False Negative values for each sentiment"""
+def calculateMatrixVals(confusionMatrix):
+    if len(confusionMatrix) == 3:
+    #This matrix will contain the TP, TN, FP, FN values for each class calculated using the confusion matrix
+        matrixValues = {0:[0, 0, 0, 0], 1:[0, 0, 0, 0], 2:[0, 0, 0, 0]}
+    else:
+        matrixValues = {0:[0, 0, 0, 0], 1:[0, 0, 0, 0], 2:[0, 0, 0, 0], 3:[0, 0, 0, 0], 4:[0, 0, 0, 0]}
+
+    for className in range(0, len(matrixValues)):
+        #Find the amount of true positives
+        tp = confusionMatrix[className][className]
+        
+        matrixValues[className][0] += tp
+
+        #Calculate the amount of true negatives
+        tn = 0
+        for j in range(0, len(confusionMatrix)):
+            if j != className:
+                for k in range(0, len(confusionMatrix[j])):
+                    if k != className:
+                        tn += confusionMatrix[j][k]
+
+        #Calculate the amount of false positives
+        fp = 0
+        for l in range(0, len(confusionMatrix)):
+            if l != className:
+                fp += confusionMatrix[l][className]
+
+        #Calculate the amount of false negatives
+        fn = 0
+        for i in range(0, len(confusionMatrix[className])):
+            if i != className:
+                fn += confusionMatrix[className][i]
+
+        matrixValues[className] = [tp, tn, fp, fn]
+
+    return matrixValues
+
+
+"""This function processes the data which has been read in from the review files"""
+def preProcess(data):
+    # data = removeAllPunctuation(data)
+    data = implementStoplist(data)
+    data = implementLowercasing(data)
+    data = removeSomePunctuation(data)
+    data = implementStemming(data)
+    # data = implementLemmatization(data)
+    return data
+
+"""This function removes patterns of punctuation from each sentence in the data structure given"""
+def removeSomePunctuation(data):
+    for i in range(0, len(data)):
+        #Removes any punctuation that is defined as its own word in the data structure (e.g: ["cat", ",", "dog"], "," would be removed)
+        data[i][1] = [word for word in data[i][1] if word != '.' and word != '.' and word != "'" and word != "-" and word != "//" and word != "*" and word != "--" and word != "..." and word != "-rrb-" and word != "-lrb-" and word != ";"]
+        for j in range(0, len(data[i][1])):
+            word = data[i][1][j]
+            #Remove commas or full stops from each word in the data structure
+            word.replace(",", "")
+            word.replace(".","")
+
+            # Some other replacements which were tried:
+            # word.replace("'", "")
+            # word.replace("-", "")
+            # word.replace("//", "")
+            # word.replace("*", "")
+            # word.replace(",", "")
+            # word.replace("--", "")
+            # word.replace("...", "")
+            # word.replace("-rrb-", "")
+            # word.replace("-lrb-", "")
+            # word.replace(";", "")
+    return data
+
+"""This function makes each letter in each word in the data structure lowercase"""
+def implementLowercasing(data):
+    for i in range(0, len(data)):
+            for j in range(0, len(data[i][1])):
+                data[i][1][j] = data[i][1][j].lower()
+    return data
+
+"""This function lemmatizes each word in the data structure"""
+def implementLemmatization(data):
+    wordnetLemmatizer = WordNetLemmatizer()
+    for i in range(0, len(data)):
+        for j in range(0, len(data[i][1])):
+            data[i][1][j] = wordnetLemmatizer.lemmatize(data[i][1][j])
+    return data
+
+"""This function stems each word in the data structure"""
+def implementStemming(data):
+    ps = PorterStemmer()
+    for i in range(0, len(data)):
+        for j in range(0, len(data[i][1])):
+            data[i][1][j] = ps.stem(data[i][1][j])
+    return data
+
+"""This function calculates the confusion matrix using the predicted sentiments and real sentiments"""
+def calculateConfusionMatrices(predictedDevData, realDevData, numClasses):
+    if numClasses == 3:
+        confusionMatrix = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+    elif numClasses == 5:
+        confusionMatrix = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
+    else:
+        print("Error with numClasses in calculateConfusionMatrices")
+    #Add 1 to the correct cell of the confusion matrix in accordance to the predicted and real sentiment values
+    for i in range(0, len(realDevData)):
+        confusionMatrix[predictedDevData[i][2]][realDevData[i][2]] += 1
+    return confusionMatrix
+
+"""This function calculates the sentiments for each word across the dataset and puts them into a dictionary, 
+    as well as calculating the frequency of each sentiment (on a word-level) and puts them into a list"""
 def predictSentiment(data, numClasses):
     priorProbabilities = computePriorProbabilities(data)
-    # print(priorProbabilities)
-    # data = removePunctuation(data)
-    # data = implementStoplist(data)
-    # print("+++++ " + str(trainingData))
-
-    # trainingData = splitUpSentences(trainingData)
-
-    # print(str(trainingData) + " TRAINING DATA HERE")
-    #print(str(trainingData.to_dict('dict')))
-
     #Returns e.g: {"cat": {0:1,1:0,2:0,3:4,4:0}, etc}
     featureSentimentDict = createSentimentDict(data, numClasses)
     #returns a dict of sentiment freqs {0:120, 1:.., 2:.., etc}
     sentimentFreqs = calculateSentimentFreq(featureSentimentDict)
     return featureSentimentDict, sentimentFreqs
 
+"""This function reduces the data set from 5 classes down to 3 classes"""
 def reduceClasses(data):
     for sentence in data:
         if sentence[2] == 1:
@@ -144,12 +319,12 @@ def reduceClasses(data):
             sentence[2] = 2
     return data
 
+"""This function reads in the file dataset and turns it into a pandas dataframe"""
 def getFile(fileLocation):
     data=pd.read_csv(fileLocation,sep='\t').to_numpy()
-    #print("*******\n" + str(data.to_numpy()[0][0]) + "\n" + str(data.to_numpy()[0][1]) + "\n" + str(data.to_numpy()[0][2]) + "\n******")
     return data
 
-#Calculates prior probability of a sentiment using sentences with sentiment (not features)
+"""This function calculates prior probability of a sentiment using sentences with sentiment (not features)"""
 def computePriorProbabilities(trainingData):
     priorProbabilities = []
     totalCount = len(trainingData)
@@ -161,33 +336,15 @@ def computePriorProbabilities(trainingData):
         priorProbabilities.append(sentimentCount/totalCount)
     return priorProbabilities
 
-# #Done this way because it makes it easier to implement stoplisting, lowercase, etc vs splitting up words
-# #whilst creating the sentiment dictionary
-# def splitUpSentences(data):
-#     word = ""
-#     for j in range(0, len(data)): #sentence in trainingData:
-#         sentenceList = []
-#         for i in data[j][1]: #sentence[1]:
-#             if i != " ":
-#                 word += i
-#             else:
-#                 #NOTE - Can add word individually to the sentiment dictionary here in order to decrease the 
-#                 #       amount of time the program takes to run.
-#                 #sentimentDict = addWordToSentimentDict(word)
-#                 sentenceList.append(word)
-#                 word = ""
-#         data[j][1] = sentenceList
-#         # trainingData[2] = sentenceList
-#     return data
-
-def removePunctuation(data):
+"""This function removes all punctuation from each sentence in the dataset"""
+def removeAllPunctuation(data):
     for sentence in data:
-        #Removes punctuation by creating a version of the string with the punctuation substituted
+        #Removes punctuation by creating a version of the string with the punctuation substituted for nothing
         sentence[1] = sentence[1].translate(str.maketrans('', '', string.punctuation))
     return data
 
-#Function should implement a stoplist and remove any of the words which aren't relevant (e.g: 'it', 'and')
-#Should then return the training data where trainingdata[1] consists of only the features     
+"""This function implements a stoplist and removes any of the words which aren't relevant (e.g: 'it', 'and').
+    It then return the training data where trainingdata[1] consists of only the features"""
 def implementStoplist(data):
     for sentence in data:
         stopWords = set(stopwords.words('english'))
@@ -197,16 +354,19 @@ def implementStoplist(data):
         for w in words:
             if w not in stopWords:
                 wordsFiltered.append(w)
+            # wordsFiltered.append(w)
         sentence[1] = wordsFiltered
     return data
 
+"""This function calculates the amount of times each sentiment of each word appears in the data structure,
+    and returns the result as a nested dictionary"""
 def createSentimentDict(trainingData, numClasses):
     sentimentDict = dict(dict())
     for sentence in trainingData:
         for i in sentence[1]:
             if i not in sentimentDict:
-                #The new dictionary added when a new word is found in the training data
-                #(Containing each sentiment and word frequency of the sentiment)
+                #A new dictionary is added when a new word is found in the training data
+                #(Containing each sentiment and word frequency for the sentiment)
                 if numClasses == 5:
                     sentimentDict[i] = {0:0, 1:0, 2:0, 3:0, 4:0}
                 elif numClasses == 3:
@@ -214,35 +374,10 @@ def createSentimentDict(trainingData, numClasses):
                 else:
                     print("Error with number of classes")
             sentimentDict[i][sentence[2]] += 1
-    # print("\n\n\n\n" + str(sentimentDict))
     return sentimentDict
 
-# #Calculates likelihood of a given sentence
-# #Uses 5 sentiment values (0,1,2,3,4)
-# def calculateLikelihood(trainingData, sentimentDict):
-#     sentimentFrequencies = calculateSentimentFreq(sentimentDict)
-#     likelihoodVals = dict()
-
-
-#     return likelihoodValues
-#     # total = len(trainingData)
-#     # for feature in 
-
-
-
-# #Returns the amount of words which have each frequency, and the amount of times each word appears.
-# #Returns these values as a list
-# def calculateWordAndSentimentFreq(sentimentDict):
-#     sentimentFreq = dict()
-#     wordFreq = dict()
-#     for word in sentimentDict:
-#         totalWordFreq = 0
-#         for sentiment in word:
-#             sentimentFreq[sentiment] += sentimentDict[word][sentiment]
-#             totalWordFreq += sentimentDict[word][sentiment]
-#         wordFreq[word] = totalWordFreq
-#     return sentimentFreq, wordFreq
-
+"""This function calculates the amount of times each sentiment appears (per word as opposed to per sentence)
+    using the given sentiment dictionary"""
 def calculateSentimentFreq(sentimentDict):
     sentimentFreq = dict()
     for word in sentimentDict:
@@ -253,38 +388,32 @@ def calculateSentimentFreq(sentimentDict):
                 sentimentFreq[sentiment] = sentimentDict[word][sentiment] #testKeys[int(sentiment)]]
     return sentimentFreq
 
+"""This function predicts the sentiment values for each sentence in the given data, using the sentiment dictionary
+    and the sentiment frequencies from the training data"""
 def calculateSentimentVals(data, sentimentDict, sentimentFreqs, numClasses):
-    sentimentVals = []
-    sentimentOutput = pd.DataFrame(columns=['SentenceId', 'Sentiment'])
+    sentimentOutput = []
     for sentence in data:
-        # print(str(sentence))
+        #Creating a list containing sentiment predictions for writing to a file
         sentimentChoice, sentimentVal = decideSentiment(sentence[1], sentimentDict, sentimentFreqs, numClasses)
-        numpy.append(sentence, sentimentChoice)
-        # print("Sentence: " + str(sentence))
-        # print("sentence 2: " + str(numpy.append(sentence, sentimentChoice)))
-        newSentiment = pd.DataFrame({'SentenceId':[sentence[0]], 'Sentiment':[sentimentChoice]})
-        sentimentOutput = pd.concat([newSentiment, sentimentOutput.loc[:]]).reset_index(drop=True)
-        #sentimentVals.append((sentence[0], sentimentChoice))
-
-        #Adding the new sentiment values to the pandas dataframe
+        sentimentOutput.append([sentence[0], sentimentChoice])
         if len(sentence) > 2:
             sentence[2] = sentimentChoice
-    #print(str(sentimentOutput))
     return sentimentOutput
-        # print("choice: " + str(sentimentChoice))
 
-#Takes in a list of words (a sentence), uses the likelihood values (calculated using sentimentDict/sentimentFreqs from training data)
-#to calculate the score for each sentiment, returns the highest score.
-#NOTE - This doesn't take into account smoothing/values that aren't in the training data, leading to 0 vals for some sentiments
+"""This function calculates the likelihood values for each sentiment and returns the highest score"""
 def decideSentiment(wordList, sentimentDict, sentimentFreqs, numClasses):
     sentimentLikelihoods = dict()
-    # print(str(wordList) + "&&&")
     for word in wordList:
-        #i = the sentiment (here would be 0,1,2,3,4)
+        #\/ (If the word was in training data)
         if word in sentimentDict:
+            #For each class for the word
             for i in range(0, len(sentimentDict[word])):
+                #Note - This step implements laplace smoothing
                 if i in sentimentLikelihoods:
-                    sentimentLikelihoods[i] *= (sentimentDict[word][i]/sentimentFreqs[i])
+                    #Multiplies the sentiment likelihood value by 
+                    #(sentiment frequency for the word in the dataset/Amount of times a word appears of that sentiment)
+                    #NOTE - ^ Equation doesn't take into account laplace smoothing as used below.
+                    sentimentLikelihoods[i] *= ((sentimentDict[word][i]+1)/(sentimentFreqs[i]+len(sentimentDict)))
                 else:
                     sentimentLikelihoods[i] = (sentimentDict[word][i]/sentimentFreqs[i])
     #Account for sentiments without any words
@@ -300,13 +429,11 @@ def decideSentiment(wordList, sentimentDict, sentimentFreqs, numClasses):
             maxSentimentVal = sentimentLikelihoods[k]
             bestSentiment = k
     if maxSentimentVal == 0:
+        #Return best sentiment = neutral if there isn't a max sentiment value
         return 2, maxSentimentVal
     else:
         return bestSentiment, maxSentimentVal
 
-
-
-            
 
 if __name__ == "__main__":
     main()
